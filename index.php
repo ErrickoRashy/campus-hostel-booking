@@ -2,7 +2,7 @@
 session_start();
 
 
-$websiteUrl = "http://localhost:8000";
+$websiteUrl = "https://campus-hostel-booking.onrender.com";
 
 
 $whatsappNumber = "254718537598";
