@@ -1,7 +1,9 @@
+
 <?php
 session_start();
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/otp.php';
 
 $errors = [];
 $full_name = '';
@@ -9,8 +11,9 @@ $email = '';
 $phone = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+
     $full_name = trim($_POST['full_name'] ?? '');
-    $email = trim($_POST['email'] ?? '');
+    $email = strtolower(trim($_POST['email'] ?? ''));
     $phone = trim($_POST['phone'] ?? '');
     $password = $_POST['password'] ?? '';
     $confirm_password = $_POST['confirm_password'] ?? '';
@@ -36,36 +39,76 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($errors)) {
+
         try {
+
             $check = $pdo->prepare(
-                "SELECT user_id FROM users WHERE email = :email"
+                "SELECT user_id FROM users WHERE LOWER(email) = :email"
             );
+
             $check->execute(['email' => $email]);
 
             if ($check->fetch()) {
-                $errors[] = "This email is already registered.";
-            } else {
-                $password_hash = password_hash($password, PASSWORD_DEFAULT);
 
-                $insert = $pdo->prepare(
-                    "INSERT INTO users
-                    (full_name, email, password_hash, role, phone)
-                    VALUES
-                    (:full_name, :email, :password_hash, 'student', :phone)"
+                $errors[] = "This email is already registered.";
+
+            } else {
+
+                $password_hash = password_hash(
+                    $password,
+                    PASSWORD_DEFAULT
                 );
 
-                $insert->execute([
+                $pending = $pdo->prepare(
+                    "INSERT INTO pending_registrations
+                     (full_name, email, phone, password_hash, expires_at)
+                     VALUES
+                     (:full_name, :email, :phone, :password_hash,
+                      NOW() + INTERVAL '24 hours')
+                     ON CONFLICT (email)
+                     DO UPDATE SET
+                        full_name = EXCLUDED.full_name,
+                        phone = EXCLUDED.phone,
+                        password_hash = EXCLUDED.password_hash,
+                        expires_at = EXCLUDED.expires_at
+                     RETURNING pending_id"
+                );
+
+                $pending->execute([
                     'full_name' => $full_name,
                     'email' => $email,
-                    'password_hash' => $password_hash,
-                    'phone' => $phone
+                    'phone' => $phone,
+                    'password_hash' => $password_hash
                 ]);
 
-                header("Location: login.php?registered=1");
-                exit;
+                $pendingId = (int) $pending->fetchColumn();
+
+                $result = createAndSendOtp(
+                    $pdo,
+                    $email,
+                    'registration',
+                    null,
+                    $pendingId
+                );
+
+                if ($result['success']) {
+
+                    $_SESSION['pending_registration_id'] = $pendingId;
+                    $_SESSION['pending_registration_email'] = $email;
+
+                    header("Location: verify_otp.php");
+                    exit;
+
+                } else {
+
+                    $errors[] = $result['message'];
+                }
             }
+
         } catch (PDOException $e) {
+
             error_log("Registration error: " . $e->getMessage());
+
             $errors[] = "Registration failed. Please try again.";
         }
     }
