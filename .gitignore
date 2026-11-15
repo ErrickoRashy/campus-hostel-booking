@@ -16,3 +16,8 @@ Thumbs.db
 
 # Editor settings
 .vscode/
+/vendor/
+/composer.phar
+.env
+.env.*
+!.env.example
